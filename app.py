@@ -16,14 +16,27 @@
 """
 
 import io
+import os
 import re
 from datetime import datetime, time
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 from docx import Document
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+
+
+# ====================================================================
+# CẤU HÌNH ĐƯỜNG DẪN FILE MẶC ĐỊNH
+# ====================================================================
+# Các file này được lưu cố định cùng app.py trong thư mục "data/"
+# Nếu người dùng không upload, app sẽ tự dùng các file này.
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"
+DEFAULT_EXCEL_PATH = DATA_DIR / "du_lieu_khach_hang.xlsx"
+DEFAULT_WORD_PATH = DATA_DIR / "mau_thong_bao.docx"
 
 
 # ====================================================================
@@ -306,19 +319,74 @@ def format_time_vn(t) -> str:
 
 
 # ====================================================================
-# 4. SIDEBAR - UPLOAD FILES
+# 4. SIDEBAR - UPLOAD FILES (với hỗ trợ file mặc định)
 # ====================================================================
+default_excel_exists = DEFAULT_EXCEL_PATH.exists()
+default_word_exists = DEFAULT_WORD_PATH.exists()
+
 with st.sidebar:
-    st.markdown("### 📁 TẢI FILE LÊN")
-    excel_file = st.file_uploader(
-        "📊 File Excel dữ liệu khách hàng",
+    st.markdown("### 📁 FILE DỮ LIỆU")
+
+    # Hiển thị trạng thái file mặc định
+    if default_excel_exists and default_word_exists:
+        st.markdown(
+            '<div class="success-box" style="font-size:13px;">✅ <b>App đã có sẵn file mặc định.</b><br>'
+            'Bạn có thể dùng ngay hoặc upload file khác để ghi đè tạm thời.</div>',
+            unsafe_allow_html=True,
+        )
+    elif default_excel_exists or default_word_exists:
+        st.markdown(
+            '<div class="warning-box" style="font-size:13px;">⚠️ <b>Chỉ có một phần file mặc định.</b><br>'
+            'Vui lòng upload file còn thiếu.</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div class="info-box" style="font-size:13px;">ℹ️ Chưa có file mặc định.<br>'
+            'Vui lòng upload file để sử dụng.</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+    st.markdown("#### 📊 File Excel dữ liệu khách hàng")
+    if default_excel_exists:
+        try:
+            excel_size_kb = DEFAULT_EXCEL_PATH.stat().st_size / 1024
+            excel_mtime = datetime.fromtimestamp(DEFAULT_EXCEL_PATH.stat().st_mtime)
+            st.caption(
+                f"📄 **File mặc định:** `{DEFAULT_EXCEL_PATH.name}`  \n"
+                f"📦 {excel_size_kb:.1f} KB · "
+                f"🕐 {excel_mtime.strftime('%d/%m/%Y %H:%M')}"
+            )
+        except Exception:
+            st.caption(f"📄 File mặc định: `{DEFAULT_EXCEL_PATH.name}`")
+
+    excel_upload = st.file_uploader(
+        "Upload file Excel (tùy chọn - để ghi đè file mặc định):",
         type=["xlsx", "xls"],
         help="File Excel có các cột: Lộ đường dây, TBA, Thôn, Xã, Huyện",
+        key="excel_upload",
     )
-    word_file = st.file_uploader(
-        "📄 File Word mẫu thông báo (.docx)",
+
+    st.markdown("---")
+    st.markdown("#### 📄 File Word mẫu thông báo")
+    if default_word_exists:
+        try:
+            word_size_kb = DEFAULT_WORD_PATH.stat().st_size / 1024
+            word_mtime = datetime.fromtimestamp(DEFAULT_WORD_PATH.stat().st_mtime)
+            st.caption(
+                f"📄 **File mặc định:** `{DEFAULT_WORD_PATH.name}`  \n"
+                f"📦 {word_size_kb:.1f} KB · "
+                f"🕐 {word_mtime.strftime('%d/%m/%Y %H:%M')}"
+            )
+        except Exception:
+            st.caption(f"📄 File mặc định: `{DEFAULT_WORD_PATH.name}`")
+
+    word_upload = st.file_uploader(
+        "Upload file Word (tùy chọn - để ghi đè file mặc định):",
         type=["docx"],
         help="File Word chứa các placeholder dạng {{NGAY_CAT}}, {{LO_DUONG_DAY}}, ...",
+        key="word_upload",
     )
 
     st.markdown("---")
@@ -350,21 +418,62 @@ with st.sidebar:
             """
         )
 
+    with st.expander("⚙️ Cách cập nhật file mặc định"):
+        st.markdown(
+            """
+File mặc định nằm trong thư mục `data/` của repo GitHub:
+- `data/du_lieu_khach_hang.xlsx`
+- `data/mau_thong_bao.docx`
+
+**Để cập nhật:**
+1. Vào repo GitHub của app
+2. Mở thư mục `data/`
+3. Bấm vào file cần thay → bấm icon thùng rác để xóa
+4. Bấm "Add file" → "Upload files" → kéo file mới vào
+5. Commit changes
+6. App sẽ tự động dùng file mới sau 1-2 phút.
+            """
+        )
+
 
 # ====================================================================
-# 5. KHU VỰC CHÍNH - PHỤ THUỘC VÀO FILE ĐÃ UPLOAD
+# 5. LOGIC CHỌN NGUỒN FILE: UPLOAD (ưu tiên) HOẶC MẶC ĐỊNH
 # ====================================================================
-if not excel_file:
+# Excel
+excel_bytes = None
+excel_source_label = None
+if excel_upload is not None:
+    excel_bytes = excel_upload.getvalue()
+    excel_source_label = f"📤 Upload: {excel_upload.name}"
+elif default_excel_exists:
+    excel_bytes = DEFAULT_EXCEL_PATH.read_bytes()
+    excel_source_label = f"💾 Mặc định: {DEFAULT_EXCEL_PATH.name}"
+
+# Word
+word_bytes = None
+word_source_label = None
+if word_upload is not None:
+    word_bytes = word_upload.getvalue()
+    word_source_label = f"📤 Upload: {word_upload.name}"
+elif default_word_exists:
+    word_bytes = DEFAULT_WORD_PATH.read_bytes()
+    word_source_label = f"💾 Mặc định: {DEFAULT_WORD_PATH.name}"
+
+
+# ====================================================================
+# 6. KIỂM TRA FILE ĐÃ SẴN SÀNG CHƯA
+# ====================================================================
+if excel_bytes is None:
     st.markdown(
-        '<div class="warning-box">⬅️ <b>Vui lòng tải lên file Excel dữ liệu khách hàng</b> '
-        'ở thanh bên trái để bắt đầu.</div>',
+        '<div class="warning-box">⬅️ <b>Chưa có file Excel dữ liệu khách hàng.</b><br>'
+        'Vui lòng upload file Excel ở thanh bên trái, hoặc liên hệ admin để thêm '
+        'file mặc định vào thư mục <code>data/</code> của app.</div>',
         unsafe_allow_html=True,
     )
     st.stop()
 
 # Đọc Excel và phát hiện cột
 try:
-    excel_bytes = excel_file.getvalue()
     df = load_excel(excel_bytes)
     col_map = detect_columns(df)
 except Exception as e:
@@ -388,12 +497,22 @@ if missing:
 all_lo = sorted({str(x).strip() for x in df[col_map["lo"]].dropna() if str(x).strip()})
 all_tba = sorted({str(x).strip() for x in df[col_map["tba"]].dropna() if str(x).strip()})
 
+# Banner hiển thị nguồn file đang dùng
+status_html = '<div class="info-box" style="font-size:13px;">'
+status_html += f'<b>📊 Excel đang dùng:</b> {excel_source_label}'
+if word_bytes is not None:
+    status_html += f' &nbsp;|&nbsp; <b>📄 Word mẫu:</b> {word_source_label}'
+else:
+    status_html += ' &nbsp;|&nbsp; <b>📄 Word mẫu:</b> <span style="color:#E30613;">❌ Chưa có</span>'
+status_html += '</div>'
+st.markdown(status_html, unsafe_allow_html=True)
+
 # Thông tin tóm tắt Excel
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("📋 Tổng bản ghi", f"{len(df):,}")
 c2.metric("🔌 Số Lộ ĐD", len(all_lo))
 c3.metric("🏭 Số TBA", len(all_tba))
-c4.metric("📄 Word mẫu", "✅ OK" if word_file else "❌ Thiếu")
+c4.metric("📄 Word mẫu", "✅ OK" if word_bytes is not None else "❌ Thiếu")
 
 st.markdown("---")
 
@@ -558,8 +677,11 @@ with st.form("form_thong_bao", clear_on_submit=False):
 # 9. XỬ LÝ KHI BẤM NÚT [TẠO THÔNG BÁO]
 # ====================================================================
 if submitted:
-    if not word_file:
-        st.error("❌ Vui lòng tải lên file **Word mẫu thông báo** ở thanh bên trái!")
+    if word_bytes is None:
+        st.error(
+            "❌ Chưa có file Word mẫu! Vui lòng upload file Word ở thanh bên trái, "
+            "hoặc liên hệ admin để thêm file mặc định."
+        )
         st.stop()
     if not selected_lo and not selected_tba:
         st.error("❌ Vui lòng chọn ít nhất một **Lộ** hoặc một **TBA**!")
@@ -647,14 +769,13 @@ if submitted:
 
         st.markdown(
             '<div class="info-box">📌 <b>Lưu ý:</b> Phần preview trên chỉ minh họa nội dung. '
-            'File Word xuất ra sẽ <b>giữ nguyên định dạng gốc</b> của file mẫu bạn upload.</div>',
+            'File Word xuất ra sẽ <b>giữ nguyên định dạng gốc</b> của file mẫu.</div>',
             unsafe_allow_html=True,
         )
 
         # Tạo Word
         with st.spinner("📄 Đang tạo file Word..."):
-            word_file.seek(0)
-            doc = Document(word_file)
+            doc = Document(io.BytesIO(word_bytes))
             replace_placeholders(doc, replacements)
             ensure_vietnamese_font(doc, "Times New Roman")
 
