@@ -407,54 +407,89 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Khởi tạo session_state nếu chưa có
+if "multi_lo" not in st.session_state:
+    st.session_state["multi_lo"] = []
+if "multi_tba" not in st.session_state:
+    st.session_state["multi_tba"] = []
+
+# Callback functions: chạy TRƯỚC khi widget được render -> tránh lỗi
+def _select_all_lo():
+    st.session_state["multi_lo"] = list(all_lo)
+
+def _clear_all_lo():
+    st.session_state["multi_lo"] = []
+
+def _select_all_tba():
+    st.session_state["multi_tba"] = list(all_tba)
+
+def _clear_all_tba():
+    st.session_state["multi_tba"] = []
+
 col_lo_select, col_tba_select = st.columns(2)
 
 with col_lo_select:
     st.markdown("#### 🔌 Chọn Lộ đường dây")
+
+    # Đặt nút thao tác nhanh LÊN TRÊN multiselect, dùng on_click callback
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        st.button(
+            "✅ Chọn tất cả lộ",
+            use_container_width=True,
+            key="btn_all_lo",
+            on_click=_select_all_lo,
+        )
+    with cc2:
+        st.button(
+            "❌ Bỏ chọn tất cả lộ",
+            use_container_width=True,
+            key="btn_clear_lo",
+            on_click=_clear_all_lo,
+        )
+
     selected_lo = st.multiselect(
         "Chọn một hoặc nhiều lộ:",
         options=all_lo,
-        default=[],
         placeholder="Bấm để chọn hoặc gõ để search...",
         label_visibility="collapsed",
         key="multi_lo",
     )
     if selected_lo:
-        st.caption(f"✅ Đã chọn **{len(selected_lo)}** lộ")
-
-    # Nút thao tác nhanh
-    cc1, cc2 = st.columns(2)
-    with cc1:
-        if st.button("✅ Chọn tất cả lộ", use_container_width=True, key="btn_all_lo"):
-            st.session_state["multi_lo"] = all_lo
-            st.rerun()
-    with cc2:
-        if st.button("❌ Bỏ chọn tất cả lộ", use_container_width=True, key="btn_clear_lo"):
-            st.session_state["multi_lo"] = []
-            st.rerun()
+        st.caption(f"✅ Đã chọn **{len(selected_lo)}** / {len(all_lo)} lộ")
+    else:
+        st.caption(f"Chưa chọn lộ nào (tổng có **{len(all_lo)}** lộ)")
 
 with col_tba_select:
     st.markdown("#### 🏭 Chọn Trạm biến áp")
+
+    cc1, cc2 = st.columns(2)
+    with cc1:
+        st.button(
+            "✅ Chọn tất cả TBA",
+            use_container_width=True,
+            key="btn_all_tba",
+            on_click=_select_all_tba,
+        )
+    with cc2:
+        st.button(
+            "❌ Bỏ chọn tất cả TBA",
+            use_container_width=True,
+            key="btn_clear_tba",
+            on_click=_clear_all_tba,
+        )
+
     selected_tba = st.multiselect(
         "Chọn một hoặc nhiều TBA:",
         options=all_tba,
-        default=[],
         placeholder="Bấm để chọn hoặc gõ để search...",
         label_visibility="collapsed",
         key="multi_tba",
     )
     if selected_tba:
-        st.caption(f"✅ Đã chọn **{len(selected_tba)}** TBA")
-
-    cc1, cc2 = st.columns(2)
-    with cc1:
-        if st.button("✅ Chọn tất cả TBA", use_container_width=True, key="btn_all_tba"):
-            st.session_state["multi_tba"] = all_tba
-            st.rerun()
-    with cc2:
-        if st.button("❌ Bỏ chọn tất cả TBA", use_container_width=True, key="btn_clear_tba"):
-            st.session_state["multi_tba"] = []
-            st.rerun()
+        st.caption(f"✅ Đã chọn **{len(selected_tba)}** / {len(all_tba)} TBA")
+    else:
+        st.caption(f"Chưa chọn TBA nào (tổng có **{len(all_tba)}** TBA)")
 
 # ====================================================================
 # 7. PREVIEW SỐ LIỆU LIVE (chưa cần bấm submit)
@@ -680,4 +715,3 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-
